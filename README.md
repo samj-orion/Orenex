@@ -323,15 +323,33 @@ The engine is a pipeline of small, composable modules present in **both** implem
 
 The seeded generator and noise functions are ported bit-for-bit, so a given seed reproduces the same district, orebody and shortfall in TypeScript and Python.
 
+### Reference parameters (Python port)
+
+The backend builds its datasets deterministically at import time from fixed seeds and exposes the same constants as the browser engine:
+
+| Subsystem | Concrete values |
+|-----------|-----------------|
+| Georeferencing | EPSG:32644 AOI, 65 km × 58 km (`minE=703000`, `minN=7732000`, `maxE=768000`, `maxN=7790000`) |
+| Geology | 168×150 terrain grid (~390 m cells), 16 geological units across 7 lithologies (`GON`, `QSP`, `IMP`, `BIF`, `GRN`, `ALL`, `DOL`), 26 structures, 3 mines (`MNE-BAL`, `MNE-NAG`, `MNE-BHA`) |
+| Prospectivity | 132×118 grid (~4 km blocks), 12 features (host, horizon/fault proximity, magnetic/gravity anomalies, ferric, clay, NDVI, relief, slope, soil moisture, occurrence proximity), PU-logistic fit (140 iterations), 12-feature logistic model with PAVA isotonic calibration |
+| Targets | Probability floor 0.42, 5×5 local maxima, 250 m spacing, maximum 26 targets, depth clamped 3–190 m |
+| Reserves | 433 drillholes, 10×10×5 m blocks, 2 m assays composited to 4 m, spherical variogram kriging, confidence classes measured/indicated/inferred, UNFC summaries, grade–tonnage at 8–30% Mn (step 2) |
+| Operations | 1,095 days (3 years) × 3 shifts/day, 5 stages (drill, blast, muck, haul, hoist), 75 machines, Weibull equipment failures, weather and blast logs |
+| Forecast | 45-day engine, default horizon 30, P10/P50/P90 quantiles, alerts (e.g. BAL trigger 0.15, NAG 0.4, BHA 0.2), five action-card types, synchronous what-if |
+| Backtest / validation | Rolling-origin backtests (7-day horizon, 7-day steps), rain bands (dry <8 mm, wet <35 mm, very wet), 4 spatial block folds + `FOLD-HIDDEN`, ablations E0–E6, 20% drill hold-out, ~25 model refits cached on first validation request |
+| Governance data | 11 registered models (`m1`…`m11`, `mn50`), 15 data sources, 10 audit events, 4 flow runs |
+
+`orenex/engine.py` is the facade that aggregates every subsystem into JSON; it lazily imports the heavy layers (`reserves`, `prospectivity`, `operations`, `models`), which is why the first such API request takes about a minute. `to_jsonable()` converts typed arrays to lists, drops callables, maps NaN/±Inf to `null`, and stringifies keys so every response is strict JSON — the smoke test asserts this with `allow_nan=False`.
+
 ---
 
 ## AI and machine learning
 
-- **National dataset** — `manganeseIndia.ts` / `manganese_india.py` hold the top 50 Indian manganese mines. Each record carries `confidence` and `source`.
-- **From-scratch trainer** — `trainer.ts` / `trainer.py` implement gradient descent directly (no ML framework), training heads for manganese grade and premium probability.
-- **Deployed predictor** — `MANGANESE_PREDICTOR` (`manganeseModel.ts`) / `predict_manganese_grade()` (`manganese_model.py`) is the `mn50` model refit on all 50 mines. Partial inputs are filled from the inventory median, so greenfield ground can be scored from a predicted depth alone.
+- **National dataset** — `manganeseIndia.ts` / `manganese_india.py` hold the top 50 Indian manganese mines. Each record carries `confidence` (`high` / `medium` / `low`) and `source`; derived stats include state count, capacity, reserves, mean grade and underground share.
+- **From-scratch trainer** — `trainer.ts` / `trainer.py` implement ridge regression and logistic regression with gradient descent, standardization, metrics (R², AUC via Mann–Whitney) and deterministic k-fold splits. No ML framework is used. Defaults: 900 epochs, learning rate 0.08, L2 0.06 (logistic uses 2× the learning rate).
+- **Deployed predictor** — `MANGANESE_PREDICTOR` (`manganeseModel.ts`) / `predict_manganese_grade()` (`manganese_model.py`) is the `mn50` model (version `mn50-v1.0.0`) refit on all 50 mines with 5-fold cross-validation. Its 19 features are 6 numeric/binary inputs, 4 ore-type dummies and 9 state dummies. Grade ≥ 28% Mn defines the high-grade class. Partial inputs are median-filled from the inventory, so greenfield ground can be scored from a predicted depth alone.
 - **Prospectivity integration** — the predictor is called per target; its grade estimate is blended 50/50 with the belt prior into `expectedGradeMn`. Every target records `aiGradeMn`, `aiPremiumProb` and `aiModelId`. In the verified port, all 26 targets matched the bundled frontend engine to 0.0 absolute difference on those fields.
-- **Copilot** — `assistant.ts` / `assistant.py` call `forecastMine(..., 7)` and `buildAlerts()` on demand for production-risk questions, and answer national-AI questions from `MANGANESE_TRAINING`. The backend returns the same `Answer` shape as the frontend, so callers can swap engines without changing rendering.
+- **Copilot** — `assistant.ts` / `assistant.py` recognize intents including `target-explanation`, `depth`, `validation`, `production-risk`, `compare`, `reserve`, `oci`, `data`, `model` and `national-ai`. Production-risk questions call `forecast_mine(..., 7)` and `build_alerts()` on demand; national-AI questions come from `MANGANESE_TRAINING`. The backend returns the same `Answer` shape as the frontend, so callers can swap engines without changing rendering.
 
 ---
 
@@ -402,7 +420,7 @@ cd ..\backend
 python -m tests.smoke
 ```
 
-`tests/smoke.py` exercises the engine end to end (geology → prospectivity → reserves/operations → forecast/backtest → assistant) and confirms the service can assemble a complete JSON response.
+`tests/smoke.py` is a 20-test `unittest` suite that exercises every engine facade: health, overview, geology, terrain grid, prospectivity summary/grid, targets, reserves, operations, forecast (30 days for `MNE-BAL`), alerts, backtest (mine and portfolio), reconciliation, validation, model registry, manganese dataset/model, assistant, JSON serialization of typed arrays/NaN/Inf, and the HTTP router (including 404 and `POST /assistant`). Every response is checked with strict `json.dumps(..., allow_nan=False)`, so no non-finite values can leak to the frontend. The full suite takes a minute or two because heavy layers build lazily on first use.
 
 ---
 
@@ -410,13 +428,15 @@ python -m tests.smoke
 
 | Aspect | Guarantee |
 |--------|-----------|
-| PRNG | `rng.ts` and `rng.py` implement `mulberry32` bit-for-bit |
-| Noise | Perlin / fBm / ridged noise ported with identical sampling |
-| Field names | camelCase data records shared across engines |
+| PRNG | `rng.ts` and `rng.py` implement `mulberry32` bit-for-bit; helpers for Gaussian samples, choices and quantiles mirror each other |
+| Noise | Perlin / fBm / ridged noise ported with identical sampling and field interpolation |
+| Time | A single frozen "now" is captured at import/module load so dates are stable across a session |
+| Field names | Data records are plain dicts/objects with the same camelCase keys (`depthTopM`, `pShort30`, `cellWidthM`, …) |
+| Numeric arrays | Python uses `array.array` typecodes `f`/`d`/`B`/`H`/`I`/`i`; the facade converts them to JSON arrays |
 | AI predictor | 26/26 prospectivity targets matched to 0.0 absolute difference on `aiGradeMn`, `aiPremiumProb`, `aiModelId` |
-| Assistant | `POST /assistant` returns the same `Answer` shape as the frontend `ask()` |
+| Assistant | `POST /assistant` returns the same `Answer` shape as the frontend `ask()`; `q` and `question` are both accepted |
 
-Porting conventions and exact equivalences are documented in `backend/PORTING.md`.
+Porting rules are documented in `backend/PORTING.md`: standard library only, one Python module per TypeScript source, snake_case identifiers with camelCase data keys, plain dicts for records, relative imports, and no silently dropped exports. Verification is per-module `python -m py_compile` plus the smoke suite. Note that `engine.endpoints()` lists 19 routes and omits `/assistant/suggestions`, which is still served by the router.
 
 ---
 
