@@ -341,13 +341,28 @@ The backend builds its datasets deterministically at import time from fixed seed
 
 `orenex/engine.py` is the facade that aggregates every subsystem into JSON; it lazily imports the heavy layers (`reserves`, `prospectivity`, `operations`, `models`), which is why the first such API request takes about a minute. `to_jsonable()` converts typed arrays to lists, drops callables, maps NaN/±Inf to `null`, and stringifies keys so every response is strict JSON — the smoke test asserts this with `allow_nan=False`.
 
+### End-to-end data flow
+
+The browser engine follows the same pipeline (module names in `frontend/src/core/`):
+
+1. **District generation** — `rng.ts` + `noise.ts` with fixed seeds → `geo.ts` AOI → `geology.ts` terrain (seed `20241017`), 16 lithology polygons (seed `31337`), 26 structures (seed `8675309`), 3 mines and occurrences (seed `6161`, 1,400 m minimum separation).
+2. **Operations truth** — `operations.ts` builds 1,096 days of weather and shifts, 75 machines (seed `551133`) and a 366-day blast register (seed `778899`); `stageModel.ts` defines the shared capacity physics (mine output = slowest of drill/blast/muck/haul/hoist).
+3. **Calibration** — `backtest.ts` fits rain-band-specific two-component residual mixtures (nominal log-normal + disrupted normal) against historical model capacity and actual shift tonnes. `asOf` truncates the fit window for honest rolling-origin tests.
+4. **Forecast, alerts and actions** — `forecast.ts` combines stage physics, calibrated uncertainty, plan, weather and overrides into `ForecastDay[]` (P10/P50/P90), shortfall probabilities, alerts and ranked action cards. Rain bands are dry <8 mm, wet 8–35 mm, very wet >35 mm; default backtest options are 7-day horizon, 280-day window, 7-day step and 0.45 alert threshold.
+5. **Exploration targets** — `prospectivity.ts` scores the 132×118 grid from 12 weighted features, applies PU learning and isotonic calibration, then selects up to 26 ranked targets (seed `5150`). `manganeseIndia.ts` + `manganeseModel.ts` supply the `mn50` grade/premium head used in target grade estimation.
+6. **Reserves and continuity** — `reserves.ts` builds 433 drillholes, assays, a variogram (nugget 26.5, sill 214, range 420 m) and kriged block estimates with measured/indicated/inferred classes; `reconciliation.ts` derives F1/F2/F3 factors and the Ore Continuity Index (green ≥9, amber ≥6).
+7. **Validation and governance** — `validation.ts` recomputes spatial folds, hidden-district tests, 20% drill hold-outs, rolling forecast backtests, cause attribution, action A/B tests and E0–E6 ablations (~25 model refits, cached). `models.ts` records the registry, sources, audit trail and flows.
+8. **Assistant / backend boundary** — `assistant.ts` answers from local computed state; `api.ts` optionally mirrors operations through the Python service, with `useBackendStatus.ts` exposing connectivity to React.
+
+All datasets are built once at module load from fixed seeds, and both `format.ts` (`NOW`) and `clock.ts` capture a single session timestamp so forecasts and audit records stay internally consistent.
+
 ---
 
 ## AI and machine learning
 
-- **National dataset** — `manganeseIndia.ts` / `manganese_india.py` hold the top 50 Indian manganese mines. Each record carries `confidence` (`high` / `medium` / `low`) and `source`; derived stats include state count, capacity, reserves, mean grade and underground share.
-- **From-scratch trainer** — `trainer.ts` / `trainer.py` implement ridge regression and logistic regression with gradient descent, standardization, metrics (R², AUC via Mann–Whitney) and deterministic k-fold splits. No ML framework is used. Defaults: 900 epochs, learning rate 0.08, L2 0.06 (logistic uses 2× the learning rate).
-- **Deployed predictor** — `MANGANESE_PREDICTOR` (`manganeseModel.ts`) / `predict_manganese_grade()` (`manganese_model.py`) is the `mn50` model (version `mn50-v1.0.0`) refit on all 50 mines with 5-fold cross-validation. Its 19 features are 6 numeric/binary inputs, 4 ore-type dummies and 9 state dummies. Grade ≥ 28% Mn defines the high-grade class. Partial inputs are median-filled from the inventory, so greenfield ground can be scored from a predicted depth alone.
+- **National dataset** — `manganeseIndia.ts` / `manganese_india.py` hold the top 50 Indian manganese mines (19 `high`, 9 `medium`, 26 `low` confidence). Each record carries `confidence` and `source`; derived stats include state count, capacity, reserves, mean grade and underground share.
+- **From-scratch trainer** — `trainer.ts` / `trainer.py` implement full-batch ridge regression and logistic regression with gradient descent, standardization, metrics (MAE/RMSE/R², accuracy/precision/recall/F1/AUC) and deterministic `kFold` splits. No ML framework is used. Defaults: 900 epochs, learning rate 0.08, L2 0.06 (logistic uses 2× the learning rate and clamps the sigmoid input to ±30).
+- **Deployed predictor** — `MANGANESE_PREDICTOR` (`manganeseModel.ts`) / `predict_manganese_grade()` (`manganese_model.py`) is the `mn50` model (version `mn50-v1.0.0`) refit on all 50 mines with 5-fold cross-validation. Its 19 features are 6 numeric/binary inputs, 4 ore-type dummies and 9 state dummies. Inputs are transformed as `log(capacityKt)`, `log(reserveMt)`, `ageYears = 2026 - commissioned`, `phosphorusPct = phosphorusP * 100`, and an underground flag. Grade ≥ 28% Mn defines the high-grade class. Partial inputs are median-filled from the inventory (defaults: underground, gondite, Madhya Pradesh), so greenfield ground can be scored from a predicted depth alone.
 - **Prospectivity integration** — the predictor is called per target; its grade estimate is blended 50/50 with the belt prior into `expectedGradeMn`. Every target records `aiGradeMn`, `aiPremiumProb` and `aiModelId`. In the verified port, all 26 targets matched the bundled frontend engine to 0.0 absolute difference on those fields.
 - **Copilot** — `assistant.ts` / `assistant.py` recognize intents including `target-explanation`, `depth`, `validation`, `production-risk`, `compare`, `reserve`, `oci`, `data`, `model` and `national-ai`. Production-risk questions call `forecast_mine(..., 7)` and `build_alerts()` on demand; national-AI questions come from `MANGANESE_TRAINING`. The backend returns the same `Answer` shape as the frontend, so callers can swap engines without changing rendering.
 
@@ -404,6 +419,19 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/assistant `
 ```
 
 Errors are JSON: `404` for unknown routes, `400` for invalid JSON bodies, `500` with exception type/message for engine faults.
+
+### Frontend client timeouts
+
+`frontend/src/core/api.ts` wraps every endpoint with a fail-soft call (unreachable backend → `BackendUnavailable` → local engine). Timeouts reflect the cost of lazy layer construction:
+
+| Wrapper(s) | Endpoint | Timeout |
+|------------|----------|---------|
+| `backendHealth` / `pingBackend` | `/health` | 4 s |
+| Default `request` | most endpoints | 12 s |
+| `backendBacktest` | `/backtest?mine=…` | 60 s |
+| `backendBacktestPortfolio` | `/backtest/portfolio` | 120 s |
+| `backendProspectivity`, `backendProspectivityGrid`, `backendReserves` | prospectivity/reserves | 60 s |
+| `backendValidation`, `backendAsk` | `/validation`, `/assistant` | 180 s |
 
 ---
 
