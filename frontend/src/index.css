@@ -1,0 +1,414 @@
+@import 'leaflet/dist/leaflet.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── macOS Dark Design System ─────────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    color-scheme: dark;
+
+    /* macOS vibrancy / frosted glass */
+    --mac-vibrancy:        rgba(28, 28, 30, 0.72);
+    --mac-frosted:         rgba(44, 44, 46, 0.85);
+    --mac-glass-border:    rgba(255, 255, 255, 0.09);
+    --mac-glass-highlight: rgba(255, 255, 255, 0.05);
+
+    /* Elevation-based shadows */
+    --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow-3: 0 4px 16px rgba(0, 0, 0, 0.6), 0 2px 4px rgba(0, 0, 0, 0.35);
+    --shadow-4: 0 8px 32px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+
+  * {
+    border-color: rgba(255, 255, 255, 0.08);
+    box-sizing: border-box;
+  }
+
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    background: #161618;
+    font-family: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+    font-size: 13.5px;
+    color: rgba(255, 255, 255, 0.92);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv05' 1, 'ss01' 1, 'kern' 1;
+  }
+
+  /* Tabular numerics — every data value */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  ::selection {
+    background: rgba(14, 145, 102, 0.35);
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(14, 145, 102, 0.7);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  /* macOS-style thin scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 99px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.28);
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* ── macOS-style Panel Surfaces ─────────────────────────────────────────── */
+  .panel {
+    background: #2c2c2e;
+    border: 0.5px solid rgba(255, 255, 255, 0.09);
+    border-radius: 12px;
+    box-shadow: var(--shadow-2), inset 0 0.5px 0 rgba(255,255,255,0.06);
+  }
+
+  /* Frosted glass / vibrancy panel */
+  .panel-vibrancy {
+    background: var(--mac-vibrancy);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 0.5px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    box-shadow: var(--shadow-3);
+  }
+
+  /* Elevated panel — cards hovering above the surface */
+  .panel-elevated {
+    background: #3a3a3c;
+    border: 0.5px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    box-shadow: var(--shadow-1);
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.07);
+    padding: 0.875rem 1.125rem;
+  }
+
+  .panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.008em;
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .eyebrow {
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* ── Controls — macOS button system ─────────────────────────────────────── */
+  .ctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    user-select: none;
+    border-radius: 7px;
+    border: 0.5px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.07);
+    padding: 0.375rem 0.75rem;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.80);
+    transition: all 130ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.07);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .ctl:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.95);
+  }
+  .ctl:active {
+    transform: scale(0.975);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .ctl:disabled {
+    pointer-events: none;
+    opacity: 0.35;
+  }
+
+  /* Primary — filled accent green */
+  .ctl-primary {
+    background: linear-gradient(160deg, #17a87e, #0a7a54);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(14, 145, 102, 0.4), inset 0 0.5px 0 rgba(255,255,255,0.18);
+  }
+  .ctl-primary:hover {
+    background: linear-gradient(160deg, #1dc08f, #0e9166);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(14, 145, 102, 0.5);
+  }
+
+  /* Ghost — text-only */
+  .ctl-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: rgba(255, 255, 255, 0.45);
+    box-shadow: none;
+  }
+  .ctl-ghost:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  /* Active / selected tab state */
+  .ctl-active {
+    background: rgba(14, 145, 102, 0.18);
+    border-color: rgba(14, 145, 102, 0.35);
+    color: #30bf99;
+  }
+  .ctl-active:hover {
+    background: rgba(14, 145, 102, 0.24);
+    border-color: rgba(14, 145, 102, 0.5);
+  }
+
+  /* Destructive */
+  .ctl-danger {
+    background: rgba(255, 59, 48, 0.15);
+    border-color: rgba(255, 59, 48, 0.3);
+    color: #ff6b6b;
+  }
+  .ctl-danger:hover {
+    background: rgba(255, 59, 48, 0.22);
+    border-color: rgba(255, 59, 48, 0.5);
+    color: #ff8080;
+  }
+
+  /* ── Input field ─────────────────────────────────────────────────────────── */
+  .field {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 0.5px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 0.4375rem 0.75rem;
+    font-size: 12.5px;
+    font-family: inherit;
+    color: rgba(255, 255, 255, 0.92);
+    transition: all 130ms ease;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+  }
+  .field::placeholder {
+    color: rgba(255, 255, 255, 0.28);
+  }
+  .field:focus {
+    outline: none;
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(14, 145, 102, 0.6);
+    box-shadow: 0 0 0 3px rgba(14, 145, 102, 0.15), inset 0 1px 3px rgba(0,0,0,0.2);
+  }
+
+  /* ── Chips / Badges ──────────────────────────────────────────────────────── */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    border-radius: 999px;
+    border: 0.5px solid;
+    padding: 1px 7px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Link ────────────────────────────────────────────────────────────────── */
+  .link {
+    cursor: pointer;
+    font-weight: 500;
+    color: #30bf99;
+    text-underline-offset: 2px;
+    transition: color 120ms ease;
+  }
+  .link:hover {
+    color: #5ecfb0;
+    text-decoration: underline;
+  }
+
+  /* ── Data grid rule ──────────────────────────────────────────────────────── */
+  .grid-rule {
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  /* ── Map chrome ──────────────────────────────────────────────────────────── */
+  .map-grid-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── macOS-style sidebar / nav item ─────────────────────────────────────── */
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0.4375rem 0.875rem;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.55);
+    transition: all 130ms ease;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .nav-item:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.85);
+  }
+  .nav-item.active {
+    background: rgba(14, 145, 102, 0.18);
+    color: #30bf99;
+  }
+  .nav-item.active:hover {
+    background: rgba(14, 145, 102, 0.24);
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .stack-divide > * + * {
+    border-top: 0.5px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .text-balance { text-wrap: balance; }
+
+  /* Noise grain overlay for depth */
+  .grain {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  }
+
+  /* macOS-like separator hairline */
+  .hairline {
+    border-top: 0.5px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Glow accents */
+  .glow-accent {
+    box-shadow: 0 0 20px rgba(14, 145, 102, 0.25);
+  }
+  .glow-danger {
+    box-shadow: 0 0 16px rgba(255, 59, 48, 0.25);
+  }
+}
+
+/* ── Recharts macOS polish ──────────────────────────────────────────────────── */
+.recharts-surface { overflow: visible; }
+.recharts-cartesian-axis-tick text {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  fill: rgba(255, 255, 255, 0.35);
+}
+.recharts-legend-item-text {
+  font-size: 11.5px !important;
+  color: rgba(255, 255, 255, 0.50) !important;
+}
+.recharts-tooltip-wrapper { outline: none; z-index: 40; }
+.recharts-polar-grid-angle line,
+.recharts-sector { outline: none; }
+.recharts-cartesian-grid line {
+  stroke: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* ── Animated depth contour ─────────────────────────────────────────────────── */
+.strat-drift {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.04) 0 1px,
+    transparent 1px 12px
+  );
+  background-size: 100% 240px;
+  animation: strat-drift 14s linear infinite;
+}
+
+/* ── Loading skeleton ───────────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.05) 0%,
+    rgba(255,255,255,0.10) 46%,
+    rgba(255,255,255,0.05) 100%
+  );
+  background-size: 640px 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+/* ── Reduced-motion fallback ─────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Leaflet map dark skin ──────────────────────────────────────────────────── */
+.leaflet-container {
+  background: #0d1117;
+}
+.leaflet-control-zoom a {
+  background: #2c2c2e !important;
+  color: rgba(255,255,255,0.75) !important;
+  border-color: rgba(255,255,255,0.12) !important;
+}
+.leaflet-control-zoom a:hover {
+  background: #3a3a3c !important;
+  color: rgba(255,255,255,0.95) !important;
+}
+.leaflet-bar {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+  border: 0.5px solid rgba(255,255,255,0.1) !important;
+}

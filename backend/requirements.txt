@@ -1,0 +1,9 @@
+# ORENEX backend has NO third-party dependencies.
+#
+# The engine and the HTTP API use only the Python standard library, so it runs on
+# any CPython 3.11+ (tested on 3.14) with no install step. This file exists so
+# tooling that expects a requirements file does not choke.
+#
+# If you later want an optional faster numeric backend you could add, e.g.:
+#   numpy>=2.0   # optional: accelerate prospectivity/reserve grids
+# but the code is written to run without it.
